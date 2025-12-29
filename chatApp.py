@@ -1,8 +1,10 @@
 import streamlit as st
-import numpy as np
-import pandas as pd
+import random
+import time
 
+# Starting from the top
 with st.chat_message("assistant"):
-    st.write("Hello! How can I assist you today?")
-    st.write("Here's a sample DataFrame for you:")
-    
+    st.markdown ("Howdy, I'm Paul")
+prompt = st.chat_input("Say something")
+if prompt:
+    st.write(f"User has sent the following prompt: {prompt}")
