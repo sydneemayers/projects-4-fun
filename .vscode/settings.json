@@ -1,0 +1,6 @@
+{
+  "python.defaultInterpreterPath": "/Users/sydneemayers/dev/projects-4-fun/.venv/bin/python",
+  "python.analysis.extraPaths": [
+    ".venv/lib/python3.9/site-packages"
+  ]
+}
