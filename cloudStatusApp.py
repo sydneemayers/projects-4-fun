@@ -303,7 +303,7 @@ def render_90day_html(day_status, day_incidents=None, height=40):
 
 
 st.markdown("---")
-st.subheader("Token Factory — 90 Day Status")
+st.subheader("Nebius Token Factory — 90 Day Status")
 st.write("Historical view for the last 90 days for each Nebius region's Token Factory.")
 
 token_components, err = fetch_token_components()
