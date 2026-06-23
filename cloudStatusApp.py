@@ -303,37 +303,37 @@ def render_90day_html(day_status, day_incidents=None, height=40):
 
 
 st.markdown("---")
-st.subheader("Nebius Token Factory — 90 Day Status")
-st.write("Historical view for the last 90 days for each Nebius region's Token Factory.")
+with st.expander("Nebius Token Factory — 90 Day Status", expanded=False):
+    st.write("Historical view for the last 90 days for each Nebius region's Token Factory.")
 
-token_components, err = fetch_token_components()
-if err:
-    st.error(err)
-elif not token_components:
-    st.info("No Token Factory components found.")
-else:
-    for comp in token_components:
-        comp_id = comp.get("id")
-        region = comp.get("region_name") or comp.get("name")
-        st.markdown(f"**{region}**")
-        day_status, downtime_seconds, day_incidents, err = build_90day_status_for_component(comp_id)
-        if err:
-            st.error(f"Error fetching incidents: {err}")
-            continue
-        if not day_status:
-            st.info("No recent incidents; showing full operational history.")
-            day_status = ["operational"] * 90
-            downtime_seconds = 0
-            day_incidents = [[] for _ in range(90)]
+    token_components, err = fetch_token_components()
+    if err:
+        st.error(err)
+    elif not token_components:
+        st.info("No Token Factory components found.")
+    else:
+        for comp in token_components:
+            comp_id = comp.get("id")
+            region = comp.get("region_name") or comp.get("name")
+            st.markdown(f"**{region}**")
+            day_status, downtime_seconds, day_incidents, err = build_90day_status_for_component(comp_id)
+            if err:
+                st.error(f"Error fetching incidents: {err}")
+                continue
+            if not day_status:
+                st.info("No recent incidents; showing full operational history.")
+                day_status = ["operational"] * 90
+                downtime_seconds = 0
+                day_incidents = [[] for _ in range(90)]
 
-        html = render_90day_html(day_status, day_incidents, height=96)
-        # compute uptime percent using seconds over 90 days
-        total_seconds = 90 * 24 * 3600
-        uptime_pct = max(0.0, (total_seconds - downtime_seconds) / total_seconds * 100)
-        cols = st.columns([1, 6, 1])
-        cols[0].markdown("90 days ago")
-        with cols[1]:
-            components.html(html, height=160)
-        cols[2].markdown("Today")
-        st.markdown(f"**{uptime_pct:.2f} % uptime**")        
+            html = render_90day_html(day_status, day_incidents, height=96)
+            # compute uptime percent using seconds over 90 days
+            total_seconds = 90 * 24 * 3600
+            uptime_pct = max(0.0, (total_seconds - downtime_seconds) / total_seconds * 100)
+            cols = st.columns([1, 6, 1])
+            cols[0].markdown("90 days ago")
+            with cols[1]:
+                components.html(html, height=160)
+            cols[2].markdown("Today")
+            st.markdown(f"**{uptime_pct:.2f} % uptime**")        
 
