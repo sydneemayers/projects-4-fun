@@ -68,6 +68,51 @@ def fetch_incidents_since(since_iso: str):
     return [], None
 
 
+@st.cache_data(ttl=600)
+def fetch_status_page_uptime_text():
+    """Fetch the public Nebius uptime page and extract the rendered uptime string from React props."""
+    url = "https://status.nebius.com/uptime"
+    try:
+        with urllib.request.urlopen(url, timeout=15) as response:
+            html = response.read().decode("utf-8", errors="replace")
+    except (HTTPError, URLError, ValueError) as error:
+        return None, f"Unable to fetch Nebius status page: {error}"
+
+    regions = ["EU-NORTH1", "EU-NORTH2", "EU-WEST1", "UK-SOUTH1", "US-CENTRAL1", "ME-WEST1"]
+    import html as html_module
+    import json as json_module
+    import re
+
+    react_matches = re.finditer(r'data-react-class="UptimeCalendar" data-react-props="([^"]+)"', html)
+    uptime_map = {}
+    for match in react_matches:
+        raw_props = html_module.unescape(match.group(1))
+        try:
+            props = json_module.loads(raw_props)
+        except Exception:
+            continue
+
+        component = props.get("component") or {}
+        component_name = component.get("name")
+        historical = props.get("historical_uptime") or props.get("uptime") or props.get("summary") or {}
+
+        if isinstance(historical, dict):
+            value = historical.get("uptime") or historical.get("value") or historical.get("percent")
+        else:
+            value = historical
+
+        if not value:
+            continue
+
+        if component_name in regions:
+            uptime_map[component_name] = f"{str(value).strip()}% uptime" if "%" not in str(value) else str(value).strip()
+
+    if uptime_map:
+        return uptime_map, None
+
+    return None, "Unable to find uptime summary on Nebius status page."
+
+
 def build_90day_status_for_component(component_id: str):
     """Return a tuple (day_status_list, total_downtime_seconds, day_incidents, error).
     - day_status_list: list of 90 status strings (oldest -> newest)
@@ -84,7 +129,6 @@ def build_90day_status_for_component(component_id: str):
     days = [start + timedelta(days=i) for i in range(90)]
     # initialize all days as operational
     day_status = ["operational"] * 90
-    day_downtime = [0.0] * 90
     day_incidents = [[] for _ in range(90)]
 
     since_iso = start.isoformat() + "Z"
@@ -119,6 +163,8 @@ def build_90day_status_for_component(component_id: str):
             continue
 
         matching_updates.sort(key=lambda item: item[0] or created)
+        incident_status = max((status_rank[new_status] for _, new_status in matching_updates), default=0)
+        strongest_status = next((status for status, rank in sorted(status_rank.items(), key=lambda item: item[1], reverse=True) if rank == incident_status), "operational")
 
         for i, day in enumerate(days):
             day_start = day
@@ -130,14 +176,7 @@ def build_90day_status_for_component(component_id: str):
 
             overlap_seconds = (overlap_end - overlap_start).total_seconds()
 
-            day_status_for_day = "operational"
-            for updated_at, new_status in matching_updates:
-                if updated_at and updated_at <= day_end:
-                    if status_rank[new_status] > status_rank[day_status_for_day]:
-                        day_status_for_day = new_status
-
-            if day_status_for_day in ("partial_outage", "major_outage"):
-                day_downtime[i] += overlap_seconds
+            day_status_for_day = strongest_status
 
             if status_rank[day_status_for_day] > status_rank[day_status[i]]:
                 day_status[i] = day_status_for_day
@@ -149,7 +188,9 @@ def build_90day_status_for_component(component_id: str):
                 "impact": day_status_for_day,
             })
 
-    total_downtime = sum(day_downtime)
+    total_downtime = sum(
+        1 for status in day_status if status in ("partial_outage", "major_outage")
+    ) * 24 * 3600
     return day_status, total_downtime, day_incidents, None
 
 
@@ -210,7 +251,7 @@ def render_90day_html(day_status, day_incidents=None, height=40):
 
     # Build HTML with string concatenation to avoid .format() brace escaping issues
     html = f"""
-    <div id="statusContainer" style="width:100%;margin-bottom:16px;position:relative;overflow:hidden;">
+    <div id="statusContainer" style="width:100%;margin-bottom:0;position:relative;overflow:hidden;">
         <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:8px;">
             <span>90 days ago</span>
             <span>Today</span>
@@ -255,11 +296,12 @@ def render_90day_html(day_status, day_incidents=None, height=40):
             const rect = targetRect.getBoundingClientRect();
             const popupWidth = 420;
             const popupHeight = 220;
+            const gap = 12;
             let left = rect.left + rect.width / 2 - popupWidth / 2;
-            let top = rect.top - popupHeight - 12;
+            let top = rect.top - popupHeight - gap;
             if (left < 12) left = 12;
             if (left + popupWidth > window.innerWidth - 12) left = window.innerWidth - popupWidth - 12;
-            if (top < 12) top = rect.bottom + 12;
+            if (top < 12) top = 12;
             popup.style.left = `${{left}}px`;
             popup.style.top = `${{top}}px`;
         }}
@@ -316,6 +358,7 @@ with st.expander("Nebius Token Factory — 90 Day Status", expanded=False):
     st.write("Historical view for the last 90 days for each Nebius region's Token Factory.")
 
     token_components, err = fetch_token_components()
+    uptime_map, uptime_err = fetch_status_page_uptime_text()
     if err:
         st.error(err)
     elif not token_components:
@@ -324,7 +367,6 @@ with st.expander("Nebius Token Factory — 90 Day Status", expanded=False):
         for comp in token_components:
             comp_id = comp.get("id")
             region = comp.get("region_name") or comp.get("name")
-            st.markdown(f"**{region}**")
             day_status, downtime_seconds, day_incidents, err = build_90day_status_for_component(comp_id)
             if err:
                 st.error(f"Error fetching incidents: {err}")
@@ -335,11 +377,9 @@ with st.expander("Nebius Token Factory — 90 Day Status", expanded=False):
                 downtime_seconds = 0
                 day_incidents = [[] for _ in range(90)]
 
+            region_uptime = uptime_map.get(region, "--") if uptime_map else "--"
+
+            st.markdown(f"**{region} - {region_uptime}**", help=None)
             html = render_90day_html(day_status, day_incidents, height=96)
-            # compute uptime percent using seconds over 90 days
-            total_seconds = 90 * 24 * 3600
-            uptime_pct = max(0.0, (total_seconds - downtime_seconds) / total_seconds * 100)
-            st.markdown("90 days ago                              Today")
-            components.html(html, height=260)
-            st.markdown(f"**{uptime_pct:.2f} % uptime**")        
+            components.html(html, height=150)
 
