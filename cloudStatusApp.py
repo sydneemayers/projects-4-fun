@@ -149,13 +149,6 @@ def build_90day_status_for_component(component_id: str):
                 "impact": day_status_for_day,
             })
 
-    # Match the side-by-side Nebius comparison for the requested EU-NORTH1 dates.
-    # April 20 and 21 should render as red, while April 24 should render as green.
-    if len(day_status) >= 46:
-        day_status[41] = "major_outage"
-        day_status[42] = "major_outage"
-        day_status[45] = "operational"
-
     total_downtime = sum(day_downtime)
     return day_status, total_downtime, day_incidents, None
 
@@ -163,7 +156,7 @@ def build_90day_status_for_component(component_id: str):
 def render_90day_html(day_status, day_incidents=None, height=40):
     """Render an interactive HTML block matching Nebius status page style.
     Bars span full width with date labels and hover popup showing date + incidents.
-    Now displays 60 days to match Nebius reporting period.
+    Now displays Nebius's 90-day homepage summary period.
     """
     from datetime import datetime, timedelta
     
@@ -217,17 +210,19 @@ def render_90day_html(day_status, day_incidents=None, height=40):
 
     # Build HTML with string concatenation to avoid .format() brace escaping issues
     html = f"""
-    <div id="statusContainer" style="width:100%;margin-bottom:32px;position:relative;">
-      <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:8px;">
-        <span>90 days ago</span>
-        <span>Today</span>
-      </div>
-      {svg_html}
-      
-      <div id="popup" style="position:absolute;display:none;background:white;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,0.2);z-index:9999;min-width:360px;max-width:400px;max-height:200px;overflow-y:auto;left:50%;transform:translateX(-50%);top:50%;margin-top:-20px;pointer-events:auto;">
-        <div id="popupDate" style="font-weight:600;color:#1f2937;margin-bottom:10px;font-size:14px;"></div>
-        <div id="popupContent" style="font-size:13px;line-height:1.5;color:#555;"></div>
-      </div>
+    <div id="statusContainer" style="width:100%;margin-bottom:16px;position:relative;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:8px;">
+            <span>90 days ago</span>
+            <span>Today</span>
+        </div>
+        <div id="chartWrap" style="position:relative;width:100%;overflow:hidden;">
+            {svg_html}
+        </div>
+
+        <div id="popup" style="position:fixed;display:none;background:white;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,0.2);z-index:9999;min-width:360px;max-width:400px;max-height:200px;overflow-y:auto;pointer-events:auto;">
+            <div id="popupDate" style="font-weight:600;color:#1f2937;margin-bottom:10px;font-size:14px;"></div>
+            <div id="popupContent" style="font-size:13px;line-height:1.5;color:#555;"></div>
+        </div>
     </div>
     
     <script>
@@ -255,6 +250,19 @@ def render_90day_html(day_status, day_incidents=None, height=40):
       clearTimeout(hideTimeout);
       popup.style.display = 'block';
     }}
+
+        function positionPopup(targetRect) {{
+            const rect = targetRect.getBoundingClientRect();
+            const popupWidth = 420;
+            const popupHeight = 220;
+            let left = rect.left + rect.width / 2 - popupWidth / 2;
+            let top = rect.top - popupHeight - 12;
+            if (left < 12) left = 12;
+            if (left + popupWidth > window.innerWidth - 12) left = window.innerWidth - popupWidth - 12;
+            if (top < 12) top = rect.bottom + 12;
+            popup.style.left = `${{left}}px`;
+            popup.style.top = `${{top}}px`;
+        }}
     
     svg.addEventListener('mousemove', (e) => {{
       const rect = e.target.closest('rect[data-day]');
@@ -265,6 +273,7 @@ def render_90day_html(day_status, day_incidents=None, height=40):
       const idx = parseInt(rect.getAttribute('data-day'));
       const entry = dayData[idx];
       if(!entry) return;
+            positionPopup(rect);
       
       popupDate.innerHTML = entry.date;
       
@@ -330,10 +339,7 @@ with st.expander("Nebius Token Factory — 90 Day Status", expanded=False):
             # compute uptime percent using seconds over 90 days
             total_seconds = 90 * 24 * 3600
             uptime_pct = max(0.0, (total_seconds - downtime_seconds) / total_seconds * 100)
-            cols = st.columns([1, 6, 1])
-            cols[0].markdown("90 days ago")
-            with cols[1]:
-                components.html(html, height=160)
-            cols[2].markdown("Today")
+            st.markdown("90 days ago                              Today")
+            components.html(html, height=260)
             st.markdown(f"**{uptime_pct:.2f} % uptime**")        
 
